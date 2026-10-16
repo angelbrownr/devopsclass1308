@@ -28,7 +28,7 @@ pipeline {
         stage('Unit Tests') {
             steps {
                 // Run Linux Node.js inside Docker Desktop; no Windows Node.js installation required.
-                bat '''
+                sh '''
                     @echo off
                     docker run --rm ^
                       --mount "type=bind,source=%WORKSPACE%,target=/work" ^
@@ -42,7 +42,7 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                bat '''
+                sh '''
                     @echo off
                     docker build -t "%IMAGE_NAME%:%BUILD_NUMBER%" -t "%IMAGE_NAME%:latest" .
                     if errorlevel 1 exit /b 1
@@ -52,8 +52,8 @@ pipeline {
 
         stage('E2E Test') {
             steps {
-                bat 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
-                bat '''
+                sh 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
+                sh '''
                     @echo off
                     docker run -d --name "%CONTAINER_NAME%" -p "%E2E_PORT%:3000" "%IMAGE_NAME%:%BUILD_NUMBER%"
                     if errorlevel 1 exit /b 1
@@ -71,8 +71,8 @@ pipeline {
             }
             post {
                 always {
-                    bat 'docker logs "%CONTAINER_NAME%" 2>NUL || exit /b 0'
-                    bat 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
+                    sh 'docker logs "%CONTAINER_NAME%" 2>NUL || exit /b 0'
+                    sh 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
                 }
             }
         }
@@ -91,7 +91,7 @@ pipeline {
                     usernameVariable: 'REG_USER',
                     passwordVariable: 'REG_PASS'
                 )]) {
-                    bat '''
+                    sh '''
                         @echo off
                         powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:REG_PASS | docker login $env:REGISTRY_HOST --username $env:REG_USER --password-stdin"
                         if errorlevel 1 exit /b 1
@@ -112,7 +112,7 @@ pipeline {
                 expression { return isMainBranch() }
             }
             steps {
-                bat '''
+                sh '''
                     @echo off
                     docker rm -f "%IMAGE_NAME%" 2>NUL
 
@@ -131,7 +131,7 @@ pipeline {
             echo 'Pipeline failed - check the stage logs above.'
         }
         cleanup {
-            bat 'docker image prune -f || exit /b 0'
+           sh 'docker image prune -f || exit /b 0'
         }
     }
 }
