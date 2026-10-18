@@ -29,13 +29,13 @@ pipeline {
             steps {
                 // Run Linux Node.js inside Docker Desktop; no Windows Node.js installation required.
                 sh '''
-                    @echo off
+                    
                     docker run --rm ^
-                      --mount "type=bind,source=%WORKSPACE%,target=/work" ^
-                      --mount "type=volume,target=/work/node_modules" ^
-                      -w /work node:20-alpine ^
+                      --mount "type=bind,source=${WORKSPACE}$,target=/work" \
+                      --mount "type=volume,target=/work/node_modules" \
+                      -w /work node:20-alpine \
                       sh -lc "npm install --no-package-lock --no-audit --no-fund && npm test"
-                    if errorlevel 1 exit /b 1
+                    
                 '''
             }
         }
@@ -43,36 +43,35 @@ pipeline {
         stage('Build Image') {
             steps {
                 sh '''
-                    @echo off
-                    docker build -t "%IMAGE_NAME%:%BUILD_NUMBER%" -t "%IMAGE_NAME%:latest" .
-                    if errorlevel 1 exit /b 1
+                    
+                    docker build -t "${IMAGE_NAME}:${BUILD_NUMBER}" -t "${IMAGE_NAME}:latest" .
+                   
                 '''
             }
         }
 
         stage('E2E Test') {
             steps {
-                sh 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
+                sh 'docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'
                 sh '''
-                    @echo off
-                    docker run -d --name "%CONTAINER_NAME%" -p "%E2E_PORT%:3000" "%IMAGE_NAME%:%BUILD_NUMBER%"
-                    if errorlevel 1 exit /b 1
+                    
+                    docker run -d --name "${CONTAINER_NAME}" -p "${E2E_PORT}:3000" "{IMAGE_NAME}:${BUILD_NUMBER}"
+                    
 
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ready=$false; for ($i=0; $i -lt 30; $i++) { try { Invoke-WebRequest -UseBasicParsing 'http://localhost:%E2E_PORT%/health' -TimeoutSec 2 | Out-Null; $ready=$true; break } catch { Start-Sleep -Seconds 1 } }; if (-not $ready) { docker logs '%CONTAINER_NAME%'; exit 1 }"
-                    if errorlevel 1 exit /b 1
+                    
 
                     docker run --rm ^
-                      --mount "type=bind,source=%WORKSPACE%,target=/work" ^
+                      --mount "type=bind,source=${WORKSPACE},target=/work" ^
                       -w /work ^
-                      -e BASE_URL=http://host.docker.internal:%E2E_PORT% ^
+                      -e BASE_URL=http://host.docker.internal:${E2E_PORT} ^
                       node:20-alpine npm run test:e2e
-                    if errorlevel 1 exit /b 1
+                    
                 '''
             }
             post {
                 always {
-                    sh 'docker logs "%CONTAINER_NAME%" 2>NUL || exit /b 0'
-                    sh 'docker rm -f "%CONTAINER_NAME%" 2>NUL || exit /b 0'
+                    sh 'docker logs "${CONTAINER_NAME}" 2>/dev/null || true'
+                    sh 'docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'
                 }
             }
         }
@@ -91,49 +90,49 @@ pipeline {
                     usernameVariable: 'REG_USER',
                     passwordVariable: 'REG_PASS'
                 )]) {
-                    sh '''
-                        @echo off
-                        powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:REG_PASS | docker login $env:REGISTRY_HOST --username $env:REG_USER --password-stdin"
-                        if errorlevel 1 exit /b 1
 
-                        docker tag "%IMAGE_NAME%:%BUILD_NUMBER%" "%REGISTRY_HOST%/%IMAGE_REPOSITORY%:%BUILD_NUMBER%"
-                        if errorlevel 1 exit /b 1
-                        docker push "%REGISTRY_HOST%/%IMAGE_REPOSITORY%:%BUILD_NUMBER%"
-                        if errorlevel 1 exit /b 1
-
-                        docker logout "%REGISTRY_HOST%"
-                    '''
-                }
+    sh '''
+        echo "$REG_PASS" | docker login $REGISTRY_HOST --username $REG_USER --password-stdin
+        docker tag "${IMAGE_NAME}:${BUILD_NUMBER}" "${REGISTRY_HOST}/${IMAGE_REPOSITORY}:${BUILD_NUMBER}"
+        docker tag "${IMAGE_NAME}:${BUILD_NUMBER}" "${REGISTRY_HOST}/${IMAGE_REPOSITORY}:latest"
+        docker push "${REGISTRY_HOST}/${IMAGE_REPOSITORY}:${BUILD_NUMBER}"
+        docker push "${REGISTRY_HOST}/${IMAGE_REPOSITORY}:latest"
+        docker logout "${REGISTRY_HOST}"
+    '''
+}
             }
         }
 
-        stage('Deploy') {
-            when {
-                expression { return isMainBranch() }
-            }
-            steps {
-                sh '''
-                    @echo off
-                    docker rm -f "%IMAGE_NAME%" 2>NUL
-
-                    docker run -d --name "%IMAGE_NAME%" --restart unless-stopped -p 3000:3000 "%IMAGE_NAME%:%BUILD_NUMBER%"
-                    if errorlevel 1 exit /b 1
-
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ready=$false; for ($i=0; $i -lt 30; $i++) { try { Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/health' -TimeoutSec 2 | Out-Null; $ready=$true; break } catch { Start-Sleep -Seconds 1 } }; if (-not $ready) { docker logs '%IMAGE_NAME%'; docker rm -f '%IMAGE_NAME%'; exit 1 }"
-                    if errorlevel 1 exit /b 1
-                '''
-            }
-        }
+        
+                stage('Deploy') {
+    when {
+        expression { return isMainBranch() }
     }
-
-    post {
-        failure {
-            echo 'Pipeline failed - check the stage logs above.'
-        }
-        cleanup {
-           sh 'docker image prune -f || exit /b 0'
-        }
+    steps {
+        sh '''
+            docker rm -f "${IMAGE_NAME}" 2>/dev/null || true
+            docker run -d --name "${IMAGE_NAME}" --restart unless-stopped -p 3000:3000 "${IMAGE_NAME}:${BUILD_NUMBER}"
+            
+            echo "Waiting for app to be ready..."
+            for i in $(seq 1 30); do
+                if curl -f http://localhost:3000/health 2>/dev/null; then
+                    echo "App is ready!"
+                    ready=true
+                    break
+                fi
+                echo "Not ready yet, waiting $i sec..."
+                sleep 1
+            done
+            
+            if [ "$ready" != "true" ]; then
+                echo "App failed to start, logs:"
+                docker logs "${IMAGE_NAME}"
+                docker rm -f "${IMAGE_NAME}"
+                exit 1
+            fi
+        '''
     }
+}
 }
 
 def isMainBranch() {
