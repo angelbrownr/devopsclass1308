@@ -30,8 +30,8 @@ pipeline {
                 // Run Linux Node.js inside Docker Desktop; no Windows Node.js installation required.
                 sh '''
                     
-                    docker run --rm ^
-                      --mount "type=bind,source=${WORKSPACE}$,target=/work" \
+                    docker run --rm \
+                      --mount "type=bind,source=${WORKSPACE},target=/work" \
                       --mount "type=volume,target=/work/node_modules" \
                       -w /work node:20-alpine \
                       sh -lc "npm install --no-package-lock --no-audit --no-fund && npm test"
@@ -52,7 +52,7 @@ pipeline {
 
         stage('E2E Test') {
             steps {
-                sh 'docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'
+                sh '''docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'''
                 sh '''
                     
                     docker run -d --name "${CONTAINER_NAME}" -p "${E2E_PORT}:3000" "{IMAGE_NAME}:${BUILD_NUMBER}"
@@ -60,18 +60,18 @@ pipeline {
 
                     
 
-                    docker run --rm ^
-                      --mount "type=bind,source=${WORKSPACE},target=/work" ^
-                      -w /work ^
-                      -e BASE_URL=http://host.docker.internal:${E2E_PORT} ^
+                    docker run --rm \
+                      --mount "type=bind,source=${WORKSPACE},target=/work" \
+                      -w /work \
+                      -e BASE_URL=http://host.docker.internal:${E2E_PORT} \
                       node:20-alpine npm run test:e2e
                     
                 '''
             }
             post {
                 always {
-                    sh 'docker logs "${CONTAINER_NAME}" 2>/dev/null || true'
-                    sh 'docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'
+                    sh '''docker logs "${CONTAINER_NAME}" 2>/dev/null || true'''
+                    sh '''docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true'''
                 }
             }
         }
@@ -139,4 +139,5 @@ def isMainBranch() {
     return env.BRANCH_NAME == 'main' ||
            env.GIT_BRANCH == 'main' ||
            env.GIT_BRANCH == 'origin/main'
+}
 }
